@@ -16,6 +16,19 @@ export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
 // nearby thread usually reuses an already-hot subscription.
 export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
 export type SidebarNewThreadEnvMode = "local" | "worktree";
+export type SidebarUsageLimitWindowId = "weekly" | "five-hour";
+
+export interface SidebarUsageLimitWindow {
+  id: SidebarUsageLimitWindowId;
+  label: string;
+  percent: number;
+}
+
+export interface SidebarUsageLimitsView {
+  weekly: SidebarUsageLimitWindow;
+  fiveHour: SidebarUsageLimitWindow;
+}
+
 type SidebarProject = {
   id: string;
   name: string;
@@ -46,6 +59,8 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   "Plan Ready": 2,
   Completed: 1,
 };
+const WEEKLY_WINDOW_MINS = 7 * 24 * 60;
+const FIVE_HOUR_WINDOW_MINS = 5 * 60;
 
 type ThreadStatusInput = Pick<
   SidebarThreadSummary,
@@ -62,6 +77,100 @@ type ThreadStatusInput = Pick<
 export interface ThreadJumpHintVisibilityController {
   sync: (shouldShow: boolean) => void;
   dispose: () => void;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function clampPercent(value: number): number {
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function windowDistance(windowDurationMins: number | null, targetMins: number): number {
+  return windowDurationMins === null
+    ? Number.POSITIVE_INFINITY
+    : Math.abs(windowDurationMins - targetMins);
+}
+
+function normalizeRateLimitWindow(
+  value: unknown,
+  id: SidebarUsageLimitWindowId,
+  label: string,
+): SidebarUsageLimitWindow | null {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+  const usedPercent = readNumber(record.usedPercent);
+  if (usedPercent === null) {
+    return null;
+  }
+  return {
+    id,
+    label,
+    percent: 100 - clampPercent(usedPercent),
+  };
+}
+
+function rateLimitDurationMins(value: unknown): number | null {
+  return readNumber(asRecord(value)?.windowDurationMins);
+}
+
+function extractRateLimitSnapshot(value: unknown): Record<string, unknown> | null {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+  const nested = asRecord(record.rateLimits);
+  return nested ?? record;
+}
+
+function extractCodexRateLimitSnapshot(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const byLimitId = asRecord(payload.rateLimitsByLimitId);
+  const codexSnapshot = asRecord(byLimitId?.codex);
+  if (codexSnapshot) {
+    return codexSnapshot;
+  }
+  const firstSnapshot = byLimitId ? asRecord(Object.values(byLimitId)[0]) : null;
+  return firstSnapshot ?? extractRateLimitSnapshot(payload.rateLimits);
+}
+
+export function resolveSidebarUsageLimitsView(
+  activities: ReadonlyArray<Thread["activities"][number]>,
+): SidebarUsageLimitsView | null {
+  const latestActivity = activities
+    .toReversed()
+    .find((activity) => activity.kind === "account.rate-limits.updated");
+  const payload = asRecord(latestActivity?.payload);
+  const snapshot = payload ? extractCodexRateLimitSnapshot(payload) : null;
+  if (!snapshot) {
+    return null;
+  }
+
+  const candidates = [snapshot.primary, snapshot.secondary].filter(
+    (value): value is Record<string, unknown> => asRecord(value) !== null,
+  );
+  const weeklySource = candidates.toSorted(
+    (left, right) =>
+      windowDistance(rateLimitDurationMins(left), WEEKLY_WINDOW_MINS) -
+      windowDistance(rateLimitDurationMins(right), WEEKLY_WINDOW_MINS),
+  )[0];
+  const fiveHourSource = candidates.toSorted(
+    (left, right) =>
+      windowDistance(rateLimitDurationMins(left), FIVE_HOUR_WINDOW_MINS) -
+      windowDistance(rateLimitDurationMins(right), FIVE_HOUR_WINDOW_MINS),
+  )[0];
+  const weekly = normalizeRateLimitWindow(weeklySource, "weekly", "Weekly");
+  const fiveHour = normalizeRateLimitWindow(fiveHourSource, "five-hour", "5 hour");
+
+  return weekly && fiveHour ? { weekly, fiveHour } : null;
 }
 
 export function createThreadJumpHintVisibilityController(input: {

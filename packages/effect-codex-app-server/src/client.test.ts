@@ -151,4 +151,29 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
       assert.equal(initialized.userAgent, "mock-codex-app-server");
     }),
   );
+
+  it.effect("accepts older thread/start responses without thread.sessionId", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const scope = yield* Scope.make();
+      const clientLayer = CodexClient.layerCommand({
+        command: "bun",
+        args: ["run", yield* mockPeerPath],
+        cwd: path.join(import.meta.dirname, ".."),
+      });
+      const context = yield* Layer.buildWithScope(clientLayer, scope);
+
+      const started = yield* Effect.gen(function* () {
+        const client = yield* CodexClient.CodexAppServerClient;
+        return yield* client.request("thread/start", {
+          cwd: process.cwd(),
+          approvalPolicy: "never",
+          sandbox: "danger-full-access",
+        });
+      }).pipe(Effect.provide(context), Effect.ensuring(Scope.close(scope, Exit.void)));
+
+      assert.equal(started.thread.id, "thread-start-without-session-id");
+      assert.equal(started.thread.sessionId, "thread-start-without-session-id");
+    }),
+  );
 });

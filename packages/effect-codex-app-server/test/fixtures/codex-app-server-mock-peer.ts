@@ -87,6 +87,30 @@ const handleMethod = (message: Record<string, unknown>) => {
       });
       return;
     }
+    case "thread/start": {
+      respond(message.id as number | string, {
+        approvalPolicy: "never",
+        approvalsReviewer: "user",
+        cwd: process.cwd(),
+        model: "gpt-5.3-codex",
+        modelProvider: "openai",
+        sandbox: { type: "dangerFullAccess" },
+        thread: {
+          cliVersion: "0.0.0-test",
+          createdAt: 1_766_001_600,
+          cwd: process.cwd(),
+          ephemeral: false,
+          id: "thread-start-without-session-id",
+          modelProvider: "openai",
+          preview: "",
+          source: "appServer",
+          status: { type: "idle" },
+          turns: [],
+          updatedAt: 1_766_001_600,
+        },
+      });
+      return;
+    }
     default: {
       if (message.id !== undefined) {
         respondError(message.id as number | string, -32601, `Unhandled request: ${method}`);

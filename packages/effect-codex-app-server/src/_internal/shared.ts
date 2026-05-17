@@ -5,6 +5,13 @@ import * as SchemaIssue from "effect/SchemaIssue";
 import * as CodexError from "../errors.ts";
 
 const formatSchemaIssue = SchemaIssue.makeFormatterDefault();
+const THREAD_PAYLOAD_METHODS_REQUIRING_SESSION_ID_COMPAT = new Set([
+  "thread/start",
+  "thread/resume",
+  "thread/fork",
+  "thread/read",
+  "thread/started",
+]);
 
 export const JsonRpcId = Schema.Union([Schema.Number, Schema.String]);
 
@@ -20,6 +27,27 @@ export const JsonRpcResponseEnvelope = Schema.Struct({
   error: Schema.optional(JsonRpcError),
 });
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function normalizeThreadPayloadForDecode(method: string, raw: unknown): unknown {
+  if (!THREAD_PAYLOAD_METHODS_REQUIRING_SESSION_ID_COMPAT.has(method) || !isRecord(raw)) {
+    return raw;
+  }
+  const thread = raw.thread;
+  if (!isRecord(thread) || typeof thread.id !== "string" || typeof thread.sessionId === "string") {
+    return raw;
+  }
+  return {
+    ...raw,
+    thread: {
+      ...thread,
+      sessionId: thread.id,
+    },
+  };
+}
+
 export const decodeOptionalPayload = <A, I>(
   method: string,
   schema: Schema.Codec<A, I> | undefined,
@@ -34,7 +62,7 @@ export const decodeOptionalPayload = <A, I>(
     );
   }
 
-  return Schema.decodeUnknownEffect(schema)(raw).pipe(
+  return Schema.decodeUnknownEffect(schema)(normalizeThreadPayloadForDecode(method, raw)).pipe(
     Effect.mapError((error) =>
       CodexError.CodexAppServerRequestError.invalidParams(
         `Invalid ${method} payload: ${formatSchemaIssue(error.issue)}`,

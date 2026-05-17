@@ -164,6 +164,7 @@ import {
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
+  resolveSidebarUsageLimitsView,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   orderItemsByPreferredIds,
@@ -174,11 +175,12 @@ import {
 } from "./Sidebar.logic";
 import { sortThreads } from "../lib/threadSort";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
+import { SidebarUsageLimitsPill } from "./sidebar/SidebarUsageLimitsPill";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { CommandDialogTrigger } from "./ui/command";
 import { readEnvironmentApi } from "../environmentApi";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
-import { useServerKeybindings } from "../rpc/serverState";
+import { useServerKeybindings, useServerProviders } from "../rpc/serverState";
 import {
   derivePhysicalProjectKey,
   deriveProjectGroupingOverrideKey,
@@ -2489,6 +2491,20 @@ const SidebarChromeHeader = memo(function SidebarChromeHeader({
 const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
+  const routeThreadRef = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteRef(params),
+  });
+  const activeThread = useStore((state) => selectThreadByRef(state, routeThreadRef));
+  const providers = useServerProviders();
+  const selectedProvider = activeThread
+    ? providers.find((provider) => provider.instanceId === activeThread.modelSelection.instanceId)
+    : undefined;
+  const activeThreadProviderDriver = selectedProvider?.driver ?? activeThread?.session?.provider;
+  const usageLimits = useMemo(
+    () => (activeThread ? resolveSidebarUsageLimitsView(activeThread.activities) : null),
+    [activeThread],
+  );
   const handleSettingsClick = useCallback(() => {
     if (isMobile) {
       setOpenMobile(false);
@@ -2497,7 +2513,10 @@ const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   }, [isMobile, navigate, setOpenMobile]);
 
   return (
-    <SidebarFooter className="p-2">
+    <SidebarFooter className="gap-1.5 p-2 pb-3">
+      {activeThreadProviderDriver === "codex" && usageLimits ? (
+        <SidebarUsageLimitsPill usageLimits={usageLimits} />
+      ) : null}
       <SidebarProviderUpdatePill />
       <SidebarUpdatePill />
       <SidebarMenu>
