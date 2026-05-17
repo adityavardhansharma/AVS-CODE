@@ -15,6 +15,7 @@ import {
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
+  resolveSidebarUsageLimitsView,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   shouldClearThreadSelectionOnMouseDown,
@@ -64,6 +65,88 @@ describe("hasUnseenCompletion", () => {
         session: null,
       }),
     ).toBe(true);
+  });
+});
+
+describe("resolveSidebarUsageLimitsView", () => {
+  it("extracts weekly and five hour remaining windows from the latest Codex rate-limit activity", () => {
+    expect(
+      resolveSidebarUsageLimitsView([
+        {
+          id: "activity-1" as never,
+          kind: "account.rate-limits.updated",
+          tone: "info",
+          summary: "Usage limits updated",
+          turnId: null,
+          createdAt: "2026-03-09T10:00:00.000Z",
+          payload: {
+            rateLimits: {
+              primary: { usedPercent: 41, windowDurationMins: 10_080 },
+              secondary: { usedPercent: 12, windowDurationMins: 300 },
+            },
+          },
+        },
+      ]),
+    ).toEqual({
+      weekly: { id: "weekly", label: "Weekly", percent: 59 },
+      fiveHour: { id: "five-hour", label: "5 hour", percent: 88 },
+    });
+  });
+
+  it("supports the older nested rateLimits payload shape", () => {
+    expect(
+      resolveSidebarUsageLimitsView([
+        {
+          id: "activity-1" as never,
+          kind: "account.rate-limits.updated",
+          tone: "info",
+          summary: "Usage limits updated",
+          turnId: null,
+          createdAt: "2026-03-09T10:00:00.000Z",
+          payload: {
+            rateLimits: {
+              rateLimits: {
+                primary: { usedPercent: 7, windowDurationMins: 300 },
+                secondary: { usedPercent: 19, windowDurationMins: 10_080 },
+              },
+            },
+          },
+        },
+      ]),
+    ).toEqual({
+      weekly: { id: "weekly", label: "Weekly", percent: 81 },
+      fiveHour: { id: "five-hour", label: "5 hour", percent: 93 },
+    });
+  });
+
+  it("prefers the codex bucket from rateLimitsByLimitId", () => {
+    expect(
+      resolveSidebarUsageLimitsView([
+        {
+          id: "activity-1" as never,
+          kind: "account.rate-limits.updated",
+          tone: "info",
+          summary: "Usage limits updated",
+          turnId: null,
+          createdAt: "2026-03-09T10:00:00.000Z",
+          payload: {
+            rateLimits: {
+              primary: { usedPercent: 1, windowDurationMins: 10_080 },
+              secondary: { usedPercent: 2, windowDurationMins: 300 },
+            },
+            rateLimitsByLimitId: {
+              codex: {
+                primary: { usedPercent: 61, windowDurationMins: 10_080 },
+                secondary: { usedPercent: 28, windowDurationMins: 300 },
+              },
+            },
+          },
+        },
+      ]),
+    ).toEqual({
+      weekly: { id: "weekly", label: "Weekly", percent: 39 },
+      fiveHour: { id: "five-hour", label: "5 hour", percent: 72 },
+    });
   });
 });
 

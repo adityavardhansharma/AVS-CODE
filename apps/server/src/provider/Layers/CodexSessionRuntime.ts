@@ -781,6 +781,27 @@ export const makeCodexSessionRuntime = (
         method,
         message,
       });
+    const refreshAccountRateLimits = Effect.gen(function* () {
+      const response = yield* client.request("account/rateLimits/read", undefined);
+      yield* emitEvent({
+        kind: "notification",
+        threadId: options.threadId,
+        method: "account/rateLimits/updated",
+        payload: {
+          rateLimits: response.rateLimits,
+          ...(response.rateLimitsByLimitId
+            ? { rateLimitsByLimitId: response.rateLimitsByLimitId }
+            : {}),
+        },
+      });
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logDebug("codex account rate limits refresh failed", {
+          threadId: options.threadId,
+          cause: error.message,
+        }),
+      ),
+    );
 
     const settlePendingApprovals = (decision: ProviderApprovalDecision) =>
       Ref.get(pendingApprovalsRef).pipe(
@@ -909,7 +930,7 @@ export const makeCodexSessionRuntime = (
             status: payload.turn.status === "failed" ? "error" : "ready",
             activeTurnId: undefined,
             ...(lastError ? { lastError } : {}),
-          });
+          }).pipe(Effect.andThen(refreshAccountRateLimits));
         }),
       ),
     );
@@ -1205,6 +1226,7 @@ export const makeCodexSessionRuntime = (
       } satisfies ProviderSession;
       yield* Ref.set(sessionRef, session);
       yield* emitSessionEvent("session/ready", "Codex App Server session ready.");
+      yield* refreshAccountRateLimits;
       return session;
     });
 
