@@ -102,6 +102,13 @@ export interface ProviderAdapterShape<TError> {
   readonly hasSession: (threadId: ThreadId) => Effect.Effect<boolean>;
 
   /**
+   * Refresh account-scoped usage data for active sessions owned by this adapter.
+   *
+   * Providers that do not expose account usage can omit this method.
+   */
+  readonly refreshAccountUsage?: () => Effect.Effect<number, TError>;
+
+  /**
    * Read a provider thread snapshot.
    */
   readonly readThread: (threadId: ThreadId) => Effect.Effect<ProviderThreadSnapshot, TError>;

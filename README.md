@@ -1,11 +1,11 @@
-# T3 Code
+# AVS Code
 
-T3 Code is a minimal web GUI for coding agents (currently Codex, Claude, and OpenCode, more coming soon).
+AVS Code is a minimal web GUI for coding agents (currently Codex, Claude, and OpenCode, more coming soon).
 
 ## Installation
 
 > [!WARNING]
-> T3 Code currently supports Codex, Claude, and OpenCode.
+> AVS Code currently supports Codex, Claude, and OpenCode.
 > Install and authenticate at least one provider before use:
 >
 > - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`

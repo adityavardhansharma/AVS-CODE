@@ -523,6 +523,9 @@ function runtimeEventToActivities(
           summary: "Usage limits updated",
           payload: {
             rateLimits: event.payload.rateLimits,
+            ...(event.payload.rateLimitsByLimitId !== undefined
+              ? { rateLimitsByLimitId: event.payload.rateLimitsByLimitId }
+              : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

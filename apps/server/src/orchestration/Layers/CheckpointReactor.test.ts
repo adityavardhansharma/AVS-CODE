@@ -123,6 +123,7 @@ function createProviderServiceHarness(
           continuationKey: `${providerName}:instance:${instanceId}`,
         },
       }),
+    refreshAccountUsage: () => Effect.succeed(0),
     rollbackConversation,
     get streamEvents() {
       return Stream.fromPubSub(runtimeEventPubSub);

@@ -113,6 +113,8 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
       Promise.resolve(undefined),
   );
 
+  public readonly refreshAccountRateLimitsImpl = vi.fn(() => Promise.resolve(undefined));
+
   public readonly closeImpl = vi.fn(() => Promise.resolve(undefined));
 
   readonly options: CodexSessionRuntimeOptions;
@@ -148,6 +150,8 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   respondToUserInput(requestId: ApprovalRequestId, answers: ProviderUserInputAnswers) {
     return Effect.promise(() => this.respondToUserInputImpl(requestId, answers));
   }
+
+  refreshAccountRateLimits = Effect.promise(() => this.refreshAccountRateLimitsImpl());
 
   get events() {
     return Stream.fromQueue(this.eventQueue);

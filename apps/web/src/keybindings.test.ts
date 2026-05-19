@@ -111,6 +111,11 @@ const DEFAULT_BINDINGS = compile([
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   {
+    shortcut: modShortcut("l"),
+    command: "sidebar.toggle",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
     shortcut: modShortcut("m", { shiftKey: true }),
     command: "modelPicker.toggle",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
@@ -290,6 +295,10 @@ describe("shortcutLabelForCommand", () => {
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "commandPalette.toggle", "MacIntel"),
       "⌘K",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.toggle", "Linux"),
+      "Ctrl+L",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "modelPicker.toggle", "Linux"),
@@ -475,6 +484,30 @@ describe("chat/editor shortcuts", () => {
         context: { terminalFocus: true },
       }),
       "commandPalette.toggle",
+    );
+  });
+
+  it("matches sidebar.toggle shortcut outside terminal focus", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "l", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "sidebar.toggle",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "l", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { terminalFocus: false },
+      }),
+      "sidebar.toggle",
+    );
+    assert.notStrictEqual(
+      resolveShortcutCommand(event({ key: "l", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { terminalFocus: true },
+      }),
+      "sidebar.toggle",
     );
   });
 

@@ -146,6 +146,7 @@ export interface CodexSessionRuntimeShape {
     requestId: ApprovalRequestId,
     answers: ProviderUserInputAnswers,
   ) => Effect.Effect<void, CodexSessionRuntimeError>;
+  readonly refreshAccountRateLimits: Effect.Effect<void, CodexSessionRuntimeError>;
   readonly events: Stream.Stream<ProviderEvent, never>;
   readonly close: Effect.Effect<void>;
 }
@@ -794,7 +795,8 @@ export const makeCodexSessionRuntime = (
             : {}),
         },
       });
-    }).pipe(
+    });
+    const refreshAccountRateLimitsSafely = refreshAccountRateLimits.pipe(
       Effect.catch((error) =>
         Effect.logDebug("codex account rate limits refresh failed", {
           threadId: options.threadId,
@@ -930,7 +932,7 @@ export const makeCodexSessionRuntime = (
             status: payload.turn.status === "failed" ? "error" : "ready",
             activeTurnId: undefined,
             ...(lastError ? { lastError } : {}),
-          }).pipe(Effect.andThen(refreshAccountRateLimits));
+          }).pipe(Effect.andThen(refreshAccountRateLimitsSafely));
         }),
       ),
     );
@@ -1226,7 +1228,7 @@ export const makeCodexSessionRuntime = (
       } satisfies ProviderSession;
       yield* Ref.set(sessionRef, session);
       yield* emitSessionEvent("session/ready", "Codex App Server session ready.");
-      yield* refreshAccountRateLimits;
+      yield* refreshAccountRateLimitsSafely;
       return session;
     });
 
@@ -1387,6 +1389,7 @@ export const makeCodexSessionRuntime = (
             },
           });
         }),
+      refreshAccountRateLimits,
       events: Stream.fromQueue(events),
       close,
     } satisfies CodexSessionRuntimeShape;

@@ -1121,12 +1121,19 @@ function mapToRuntimeEvents(
     if (!payload) {
       return [];
     }
+    const rawPayload =
+      event.payload && typeof event.payload === "object"
+        ? (event.payload as Record<string, unknown>)
+        : null;
     return [
       {
         type: "account.rate-limits.updated",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
           rateLimits: payload.rateLimits,
+          ...(rawPayload?.rateLimitsByLimitId
+            ? { rateLimitsByLimitId: rawPayload.rateLimitsByLimitId }
+            : {}),
         },
       },
     ];
@@ -1659,6 +1666,22 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   const hasSession: CodexAdapterShape["hasSession"] = (threadId) =>
     Effect.succeed(Boolean(sessions.get(threadId) && !sessions.get(threadId)?.stopped));
 
+  const refreshAccountUsage: CodexAdapterShape["refreshAccountUsage"] = () =>
+    Effect.gen(function* () {
+      const activeSessions = Array.from(sessions.values()).filter((session) => !session.stopped);
+      yield* Effect.forEach(
+        activeSessions,
+        (session) =>
+          session.runtime.refreshAccountRateLimits.pipe(
+            Effect.mapError((cause) =>
+              mapCodexRuntimeError(session.threadId, "account/rateLimits/read", cause),
+            ),
+          ),
+        { concurrency: 1, discard: true },
+      );
+      return activeSessions.length;
+    });
+
   const stopAll: CodexAdapterShape["stopAll"] = () =>
     Effect.forEach(Array.from(sessions.values()), stopSessionInternal, {
       concurrency: 1,
@@ -1688,6 +1711,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     stopSession,
     listSessions,
     hasSession,
+    refreshAccountUsage,
     stopAll,
     get streamEvents() {
       return Stream.fromQueue(runtimeEventQueue);

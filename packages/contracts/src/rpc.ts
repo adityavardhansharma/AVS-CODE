@@ -139,6 +139,7 @@ export const WS_METHODS = {
   // Server meta
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
+  serverRefreshCodexUsage: "server.refreshCodexUsage",
   serverUpdateProvider: "server.updateProvider",
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverRemoveKeybinding: "server.removeKeybinding",
@@ -192,6 +193,15 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
     instanceId: Schema.optional(ProviderInstanceId),
   }),
   success: ServerProviderUpdatedPayload,
+});
+
+export const WsServerRefreshCodexUsageRpc = Rpc.make(WS_METHODS.serverRefreshCodexUsage, {
+  payload: Schema.Struct({
+    instanceId: ProviderInstanceId,
+  }),
+  success: Schema.Struct({
+    refreshedSessionCount: Schema.Number,
+  }),
 });
 
 export const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
@@ -475,6 +485,7 @@ export const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess,
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
+  WsServerRefreshCodexUsageRpc,
   WsServerUpdateProviderRpc,
   WsServerUpsertKeybindingRpc,
   WsServerRemoveKeybindingRpc,

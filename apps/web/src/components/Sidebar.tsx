@@ -62,15 +62,16 @@ import {
 } from "@t3tools/contracts/settings";
 import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
-import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
+import { APP_BASE_NAME, APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { isMacPlatform, newCommandId } from "../lib/utils";
+import { cn, isMacPlatform, newCommandId } from "../lib/utils";
 import {
   selectProjectByRef,
   selectProjectsAcrossEnvironments,
   selectSidebarThreadsForProjectRefs,
   selectSidebarThreadsAcrossEnvironments,
   selectThreadByRef,
+  selectThreadsAcrossEnvironments,
   useStore,
 } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
@@ -164,7 +165,9 @@ import {
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
+  resolveCollapsedThreadStatus,
   resolveSidebarUsageLimitsView,
+  resolveLatestCodexUsageLimitsView,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   orderItemsByPreferredIds,
@@ -179,6 +182,7 @@ import { SidebarUsageLimitsPill } from "./sidebar/SidebarUsageLimitsPill";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { CommandDialogTrigger } from "./ui/command";
 import { readEnvironmentApi } from "../environmentApi";
+import { readEnvironmentConnection } from "../environments/runtime";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings, useServerProviders } from "../rpc/serverState";
 import {
@@ -211,6 +215,11 @@ const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
 const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   duration: 180,
   easing: "ease-out",
+} as const;
+const COLLAPSED_THREAD_STATUS_PRIORITY = {
+  Error: 3,
+  Working: 2,
+  Completed: 1,
 } as const;
 const EMPTY_THREAD_JUMP_LABELS = new Map<string, string>();
 const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> = {
@@ -2239,22 +2248,6 @@ const SidebarProjectListRow = memo(function SidebarProjectListRow(props: Sidebar
   );
 });
 
-function T3Wordmark() {
-  return (
-    <svg
-      aria-label="T3"
-      className="h-2.5 w-auto shrink-0 text-foreground"
-      viewBox="15.5309 37 94.3941 56.96"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M33.4509 93V47.56H15.5309V37H64.3309V47.56H46.4109V93H33.4509ZM86.7253 93.96C82.832 93.96 78.9653 93.4533 75.1253 92.44C71.2853 91.3733 68.032 89.88 65.3653 87.96L70.4053 78.04C72.5386 79.5867 75.0186 80.8133 77.8453 81.72C80.672 82.6267 83.5253 83.08 86.4053 83.08C89.6586 83.08 92.2186 82.44 94.0853 81.16C95.952 79.88 96.8853 78.12 96.8853 75.88C96.8853 73.7467 96.0586 72.0667 94.4053 70.84C92.752 69.6133 90.0853 69 86.4053 69H80.4853V60.44L96.0853 42.76L97.5253 47.4H68.1653V37H107.365V45.4L91.8453 63.08L85.2853 59.32H89.0453C95.9253 59.32 101.125 60.8667 104.645 63.96C108.165 67.0533 109.925 71.0267 109.925 75.88C109.925 79.0267 109.099 81.9867 107.445 84.76C105.792 87.48 103.259 89.6933 99.8453 91.4C96.432 93.1067 92.0586 93.96 86.7253 93.96Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
 type SortableProjectHandleProps = Pick<
   ReturnType<typeof useSortable>,
   "attributes" | "listeners" | "setActivatorNodeRef"
@@ -2446,25 +2439,120 @@ function SortableProjectItem({
   );
 }
 
+function CollapsedThreadStatusRail({
+  activeRouteThreadKey,
+  navigateToThread,
+  threads,
+}: {
+  activeRouteThreadKey: string | null;
+  navigateToThread: (threadRef: ScopedThreadRef) => void;
+  threads: readonly SidebarThreadSummary[];
+}) {
+  const visibleThreads = useMemo(
+    () =>
+      threads
+        .filter((thread) => thread.archivedAt === null)
+        .map((thread) => ({
+          status: resolveCollapsedThreadStatus({ thread }),
+          thread,
+          threadKey: scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        }))
+        .filter(
+          (
+            item,
+          ): item is typeof item & {
+            status: NonNullable<typeof item.status> & { label: "Error" | "Working" | "Completed" };
+          } =>
+            item.status?.label === "Error" ||
+            item.status?.label === "Working" ||
+            item.status?.label === "Completed",
+        )
+        .toSorted((left, right) => {
+          const statusDelta =
+            COLLAPSED_THREAD_STATUS_PRIORITY[right.status.label] -
+            COLLAPSED_THREAD_STATUS_PRIORITY[left.status.label];
+          if (statusDelta !== 0) {
+            return statusDelta;
+          }
+          return (
+            Date.parse(right.thread.updatedAt ?? right.thread.createdAt) -
+            Date.parse(left.thread.updatedAt ?? left.thread.createdAt)
+          );
+        })
+        .slice(0, 30),
+    [threads],
+  );
+
+  if (visibleThreads.length === 0) {
+    return null;
+  }
+
+  return (
+    <SidebarGroup className="hidden px-2 py-2 group-data-[collapsible=icon]:flex">
+      <SidebarMenu className="items-center gap-1.5">
+        {visibleThreads.map(({ status, thread, threadKey }) => {
+          const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+          const isActive = activeRouteThreadKey === threadKey;
+          return (
+            <SidebarMenuItem key={threadKey} className="flex justify-center">
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={`${status?.label}: ${thread.title}`}
+                      className={cn(
+                        "relative inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
+                        isActive && "bg-accent text-foreground",
+                      )}
+                      onClick={() => navigateToThread(threadRef)}
+                    />
+                  }
+                >
+                  <span
+                    className={cn(
+                      "size-2.5 rounded-full shadow-[0_0_0_2px_hsl(var(--background))]",
+                      status?.dotClass,
+                      status?.pulse && "animate-pulse",
+                    )}
+                  />
+                  <span className="sr-only">{thread.title}</span>
+                </TooltipTrigger>
+                <TooltipPopup side="right">
+                  {status?.label}: {thread.title}
+                </TooltipPopup>
+              </Tooltip>
+            </SidebarMenuItem>
+          );
+        })}
+      </SidebarMenu>
+    </SidebarGroup>
+  );
+}
+
 const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
 }: {
   isElectron: boolean;
 }) {
   const wordmark = (
-    <div className="flex items-center gap-2">
-      <SidebarTrigger className="shrink-0 md:hidden" />
+    <div className="flex w-full min-w-0 items-center gap-2">
       <Tooltip>
         <TooltipTrigger
           render={
             <Link
               aria-label="Go to threads"
-              className="ml-1 flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-md outline-hidden ring-ring transition-colors hover:text-foreground focus-visible:ring-2"
+              className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-md outline-hidden ring-ring transition-colors hover:text-foreground focus-visible:ring-2 group-data-[collapsible=icon]:hidden"
               to="/"
             >
-              <T3Wordmark />
+              <img
+                alt=""
+                aria-hidden="true"
+                className="size-4 shrink-0 rounded-sm object-contain"
+                src="/apple-touch-icon.png"
+              />
               <span className="truncate text-sm font-medium tracking-tight text-muted-foreground">
-                Code
+                {APP_BASE_NAME}
               </span>
               <span className="rounded-full bg-muted/50 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.18em] text-muted-foreground/60">
                 {APP_STAGE_LABEL}
@@ -2476,6 +2564,7 @@ const SidebarChromeHeader = memo(function SidebarChromeHeader({
           Version {APP_VERSION}
         </TooltipPopup>
       </Tooltip>
+      <SidebarTrigger className="shrink-0" />
     </div>
   );
 
@@ -2501,10 +2590,40 @@ const SidebarChromeFooter = memo(function SidebarChromeFooter() {
     ? providers.find((provider) => provider.instanceId === activeThread.modelSelection.instanceId)
     : undefined;
   const activeThreadProviderDriver = selectedProvider?.driver ?? activeThread?.session?.provider;
+  const threads = useStore(useShallow(selectThreadsAcrossEnvironments));
   const usageLimits = useMemo(
-    () => (activeThread ? resolveSidebarUsageLimitsView(activeThread.activities) : null),
-    [activeThread],
+    () =>
+      activeThread
+        ? (resolveLatestCodexUsageLimitsView({
+            threads,
+            instanceId: activeThread.modelSelection.instanceId,
+          }) ?? resolveSidebarUsageLimitsView(activeThread.activities))
+        : null,
+    [activeThread, threads],
   );
+  const [isRefreshingUsage, setIsRefreshingUsage] = useState(false);
+  const [usageRefreshError, setUsageRefreshError] = useState<string | null>(null);
+  const handleUsageRefresh = useCallback(async () => {
+    if (!activeThread || activeThreadProviderDriver !== "codex") {
+      return;
+    }
+    const connection = readEnvironmentConnection(activeThread.environmentId);
+    if (!connection) {
+      setUsageRefreshError("Backend is not connected.");
+      return;
+    }
+    setIsRefreshingUsage(true);
+    setUsageRefreshError(null);
+    try {
+      await connection.client.server.refreshCodexUsage({
+        instanceId: activeThread.modelSelection.instanceId,
+      });
+    } catch (error) {
+      setUsageRefreshError(error instanceof Error ? error.message : "Refresh failed.");
+    } finally {
+      setIsRefreshingUsage(false);
+    }
+  }, [activeThread, activeThreadProviderDriver]);
   const handleSettingsClick = useCallback(() => {
     if (isMobile) {
       setOpenMobile(false);
@@ -2515,10 +2634,21 @@ const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   return (
     <SidebarFooter className="gap-1.5 p-2 pb-3">
       {activeThreadProviderDriver === "codex" && usageLimits ? (
-        <SidebarUsageLimitsPill usageLimits={usageLimits} />
+        <div className="group-data-[collapsible=icon]:hidden">
+          <SidebarUsageLimitsPill
+            refreshError={usageRefreshError}
+            refreshing={isRefreshingUsage}
+            usageLimits={usageLimits}
+            onRefresh={() => void handleUsageRefresh()}
+          />
+        </div>
       ) : null}
-      <SidebarProviderUpdatePill />
-      <SidebarUpdatePill />
+      <div className="group-data-[collapsible=icon]:hidden">
+        <SidebarProviderUpdatePill />
+      </div>
+      <div className="group-data-[collapsible=icon]:hidden">
+        <SidebarUpdatePill />
+      </div>
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton
@@ -2563,6 +2693,8 @@ interface SidebarProjectsContentProps {
   newThreadShortcutLabel: string | null;
   commandPaletteShortcutLabel: string | null;
   threadJumpLabelByKey: ReadonlyMap<string, string>;
+  sidebarThreads: readonly SidebarThreadSummary[];
+  navigateToThread: (threadRef: ScopedThreadRef) => void;
   attachThreadListAutoAnimateRef: (node: HTMLElement | null) => void;
   expandThreadListForProject: (projectKey: string) => void;
   collapseThreadListForProject: (projectKey: string) => void;
@@ -2604,6 +2736,8 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     newThreadShortcutLabel,
     commandPaletteShortcutLabel,
     threadJumpLabelByKey,
+    sidebarThreads,
+    navigateToThread,
     attachThreadListAutoAnimateRef,
     expandThreadListForProject,
     collapseThreadListForProject,
@@ -2641,7 +2775,12 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 
   return (
     <SidebarContent className="gap-0">
-      <SidebarGroup className="px-2 pt-2 pb-1">
+      <CollapsedThreadStatusRail
+        activeRouteThreadKey={routeThreadKey}
+        navigateToThread={navigateToThread}
+        threads={sidebarThreads}
+      />
+      <SidebarGroup className="px-2 pt-2 pb-1 group-data-[collapsible=icon]:hidden">
         <SidebarMenu>
           <SidebarMenuItem>
             <CommandDialogTrigger
@@ -2665,7 +2804,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         </SidebarMenu>
       </SidebarGroup>
       {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
-        <SidebarGroup className="px-2 pt-2 pb-0">
+        <SidebarGroup className="px-2 pt-2 pb-0 group-data-[collapsible=icon]:hidden">
           <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
             <TriangleAlertIcon />
             <AlertTitle>Intel build on Apple Silicon</AlertTitle>
@@ -2687,7 +2826,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
           </Alert>
         </SidebarGroup>
       ) : null}
-      <SidebarGroup className="px-2 py-2">
+      <SidebarGroup className="px-2 py-2 group-data-[collapsible=icon]:hidden">
         <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
           <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
             Projects
@@ -3467,6 +3606,8 @@ export default function Sidebar() {
             newThreadShortcutLabel={newThreadShortcutLabel}
             commandPaletteShortcutLabel={commandPaletteShortcutLabel}
             threadJumpLabelByKey={visibleThreadJumpLabelByKey}
+            sidebarThreads={visibleThreads}
+            navigateToThread={navigateToThread}
             attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
             expandThreadListForProject={expandThreadListForProject}
             collapseThreadListForProject={collapseThreadListForProject}
