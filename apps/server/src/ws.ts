@@ -50,6 +50,7 @@ import {
   observeRpcStreamEffect,
 } from "./observability/RpcInstrumentation.ts";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry.ts";
+import { ProviderService } from "./provider/Services/ProviderService.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents.ts";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup.ts";
@@ -170,6 +171,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
       const terminalManager = yield* TerminalManager;
       const providerRegistry = yield* ProviderRegistry;
+      const providerService = yield* ProviderService;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const config = yield* ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents;
@@ -844,6 +846,20 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               ? providerRegistry.refreshInstance(input.instanceId)
               : providerRegistry.refresh()
             ).pipe(Effect.map((providers) => ({ providers }))),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverRefreshCodexUsage]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverRefreshCodexUsage,
+            providerService.refreshAccountUsage(input).pipe(
+              Effect.map((refreshedSessionCount) => ({ refreshedSessionCount })),
+              Effect.catch((error) =>
+                Effect.logWarning("Codex usage refresh failed", {
+                  instanceId: input.instanceId,
+                  cause: error.message,
+                }).pipe(Effect.as({ refreshedSessionCount: 0 })),
+              ),
+            ),
             { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.serverUpdateProvider]: (input) =>

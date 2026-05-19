@@ -538,7 +538,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         if (!instanceInfo.enabled) {
           return yield* toValidationError(
             "ProviderService.startSession",
-            `Provider instance '${resolvedInstanceId}' is disabled in T3 Code settings.`,
+            `Provider instance '${resolvedInstanceId}' is disabled in AVS Code settings.`,
           );
         }
         const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
@@ -935,6 +935,19 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const getInstanceInfo: ProviderServiceShape["getInstanceInfo"] = (instanceId) =>
     registry.getInstanceInfo(instanceId);
 
+  const refreshAccountUsage: ProviderServiceShape["refreshAccountUsage"] = Effect.fn(
+    "ProviderService.refreshAccountUsage",
+  )(function* (input) {
+    const adapter = yield* registry.getByInstance(input.instanceId);
+    if (!adapter.refreshAccountUsage) {
+      return yield* toValidationError(
+        "ProviderService.refreshAccountUsage",
+        `Provider instance '${input.instanceId}' does not support account usage refresh.`,
+      );
+    }
+    return yield* adapter.refreshAccountUsage();
+  });
+
   const rollbackConversation: ProviderServiceShape["rollbackConversation"] = Effect.fn(
     "rollbackConversation",
   )(function* (rawInput) {
@@ -1042,6 +1055,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     listSessions,
     getCapabilities,
     getInstanceInfo,
+    refreshAccountUsage,
     rollbackConversation,
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (ProviderRuntimeIngestion, CheckpointReactor, etc.) each

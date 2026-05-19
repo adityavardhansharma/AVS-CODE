@@ -13,6 +13,7 @@ import {
   isContextMenuPointerDown,
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
+  resolveCollapsedThreadStatus,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
   resolveSidebarUsageLimitsView,
@@ -90,6 +91,7 @@ describe("resolveSidebarUsageLimitsView", () => {
     ).toEqual({
       weekly: { id: "weekly", label: "Weekly", percent: 59 },
       fiveHour: { id: "five-hour", label: "5 hour", percent: 88 },
+      updatedAt: "2026-03-09T10:00:00.000Z",
     });
   });
 
@@ -116,6 +118,7 @@ describe("resolveSidebarUsageLimitsView", () => {
     ).toEqual({
       weekly: { id: "weekly", label: "Weekly", percent: 81 },
       fiveHour: { id: "five-hour", label: "5 hour", percent: 93 },
+      updatedAt: "2026-03-09T10:00:00.000Z",
     });
   });
 
@@ -146,6 +149,7 @@ describe("resolveSidebarUsageLimitsView", () => {
     ).toEqual({
       weekly: { id: "weekly", label: "Weekly", percent: 39 },
       fiveHour: { id: "five-hour", label: "5 hour", percent: 72 },
+      updatedAt: "2026-03-09T10:00:00.000Z",
     });
   });
 });
@@ -603,6 +607,22 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Working", pulse: true });
   });
 
+  it("shows errors before active blockers", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          hasPendingApprovals: true,
+          session: {
+            ...baseThread.session,
+            status: "error",
+            lastError: "Provider failed",
+          },
+        },
+      }),
+    ).toMatchObject({ label: "Error", pulse: false });
+  });
+
   it("shows plan ready when a settled plan turn has a proposed plan ready for follow-up", () => {
     expect(
       resolveThreadStatusPill({
@@ -652,6 +672,60 @@ describe("resolveThreadStatusPill", () => {
         },
       }),
     ).toMatchObject({ label: "Completed", pulse: false });
+  });
+});
+
+describe("resolveCollapsedThreadStatus", () => {
+  const baseThread = {
+    latestTurn: null,
+    session: {
+      provider: ProviderDriverKind.make("codex"),
+      status: "ready" as const,
+      createdAt: "2026-03-09T10:00:00.000Z",
+      updatedAt: "2026-03-09T10:00:00.000Z",
+      orchestrationStatus: "ready" as const,
+    },
+  };
+
+  it("uses a blue working status for active threads", () => {
+    expect(
+      resolveCollapsedThreadStatus({
+        thread: {
+          ...baseThread,
+          session: {
+            ...baseThread.session,
+            status: "running",
+            orchestrationStatus: "running",
+          },
+        },
+      }),
+    ).toMatchObject({ label: "Working", dotClass: expect.stringContaining("sky") });
+  });
+
+  it("uses a green completed status for completed threads", () => {
+    expect(
+      resolveCollapsedThreadStatus({
+        thread: {
+          ...baseThread,
+          latestTurn: makeLatestTurn(),
+        },
+      }),
+    ).toMatchObject({ label: "Completed", dotClass: expect.stringContaining("emerald") });
+  });
+
+  it("uses a red error status for failed threads", () => {
+    expect(
+      resolveCollapsedThreadStatus({
+        thread: {
+          ...baseThread,
+          session: {
+            ...baseThread.session,
+            status: "error",
+            lastError: "Provider failed",
+          },
+        },
+      }),
+    ).toMatchObject({ label: "Error", dotClass: expect.stringContaining("red") });
   });
 });
 

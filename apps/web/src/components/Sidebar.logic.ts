@@ -1,5 +1,6 @@
 import * as React from "react";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
+import type { ProviderInstanceId } from "@t3tools/contracts";
 import {
   getThreadSortTimestamp,
   sortThreads,
@@ -27,6 +28,7 @@ export interface SidebarUsageLimitWindow {
 export interface SidebarUsageLimitsView {
   weekly: SidebarUsageLimitWindow;
   fiveHour: SidebarUsageLimitWindow;
+  updatedAt: string | null;
 }
 
 type SidebarProject = {
@@ -40,6 +42,7 @@ export type ThreadTraversalDirection = "previous" | "next";
 
 export interface ThreadStatusPill {
   label:
+    | "Error"
     | "Working"
     | "Connecting"
     | "Completed"
@@ -52,6 +55,7 @@ export interface ThreadStatusPill {
 }
 
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
+  Error: 6,
   "Pending Approval": 5,
   "Awaiting Input": 4,
   Working: 3,
@@ -170,7 +174,26 @@ export function resolveSidebarUsageLimitsView(
   const weekly = normalizeRateLimitWindow(weeklySource, "weekly", "Weekly");
   const fiveHour = normalizeRateLimitWindow(fiveHourSource, "five-hour", "5 hour");
 
-  return weekly && fiveHour ? { weekly, fiveHour } : null;
+  return weekly && fiveHour
+    ? { weekly, fiveHour, updatedAt: latestActivity?.createdAt ?? null }
+    : null;
+}
+
+export function resolveLatestCodexUsageLimitsView(input: {
+  threads: ReadonlyArray<Pick<Thread, "activities" | "modelSelection" | "session">>;
+  instanceId: ProviderInstanceId;
+}): SidebarUsageLimitsView | null {
+  const activities = input.threads
+    .filter(
+      (thread) =>
+        thread.modelSelection.instanceId === input.instanceId ||
+        thread.session?.providerInstanceId === input.instanceId,
+    )
+    .flatMap((thread) => thread.activities)
+    .filter((activity) => activity.kind === "account.rate-limits.updated")
+    .toSorted((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+
+  return resolveSidebarUsageLimitsView(activities);
 }
 
 export function createThreadJumpHintVisibilityController(input: {
@@ -440,6 +463,15 @@ export function resolveThreadStatusPill(input: {
 }): ThreadStatusPill | null {
   const { thread } = input;
 
+  if (thread.session?.status === "error" || thread.session?.lastError) {
+    return {
+      label: "Error",
+      colorClass: "text-red-600 dark:text-red-300/90",
+      dotClass: "bg-red-500 dark:bg-red-300/90",
+      pulse: false,
+    };
+  }
+
   if (thread.hasPendingApprovals) {
     return {
       label: "Pending Approval",
@@ -491,6 +523,40 @@ export function resolveThreadStatusPill(input: {
   }
 
   if (hasUnseenCompletion(thread)) {
+    return {
+      label: "Completed",
+      colorClass: "text-emerald-600 dark:text-emerald-300/90",
+      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+      pulse: false,
+    };
+  }
+
+  return null;
+}
+
+export function resolveCollapsedThreadStatus(input: {
+  thread: Pick<SidebarThreadSummary, "latestTurn" | "session">;
+}): ThreadStatusPill | null {
+  const { thread } = input;
+  if (thread.session?.status === "error" || thread.session?.lastError) {
+    return {
+      label: "Error",
+      colorClass: "text-red-600 dark:text-red-300/90",
+      dotClass: "bg-red-500 dark:bg-red-300/90",
+      pulse: false,
+    };
+  }
+
+  if (thread.session?.status === "running" || thread.session?.status === "connecting") {
+    return {
+      label: "Working",
+      colorClass: "text-sky-600 dark:text-sky-300/80",
+      dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      pulse: true,
+    };
+  }
+
+  if (thread.latestTurn?.completedAt) {
     return {
       label: "Completed",
       colorClass: "text-emerald-600 dark:text-emerald-300/90",

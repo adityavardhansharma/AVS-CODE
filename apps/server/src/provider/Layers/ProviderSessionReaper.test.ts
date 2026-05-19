@@ -172,6 +172,7 @@ describe("ProviderSessionReaper", () => {
           },
         });
       },
+      refreshAccountUsage: () => Effect.succeed(0),
       rollbackConversation: () => unsupported(),
       streamEvents: Stream.empty,
     };

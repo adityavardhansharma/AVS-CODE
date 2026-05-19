@@ -31,6 +31,7 @@ import {
 } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
+import { useShallow } from "zustand/react/shallow";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import {
   clampCollapsedComposerCursor,
@@ -111,6 +112,9 @@ import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow";
 import { formatProviderSkillDisplayName } from "../../providerSkillPresentation";
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { selectThreadsAcrossEnvironments, useStore } from "../../store";
+import { resolveLatestCodexUsageLimitsView } from "../Sidebar.logic";
+import { readEnvironmentConnection } from "../../environments/runtime";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 
@@ -145,6 +149,7 @@ const COMPOSER_FLOATING_LAYER_SELECTOR = [
   '[data-slot="combobox-popup"]',
   '[data-slot="autocomplete-popup"]',
 ].join(",");
+const CODEX_USAGE_REFRESH_STALE_MS = 60_000;
 
 const extendReplacementRangeForTrailingSpace = (
   text: string,
@@ -767,6 +772,69 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       ? selectedModelForPicker
       : (normalizeModelSlug(selectedModelForPicker, selectedProvider) ?? selectedModelForPicker);
   }, [modelOptionsByInstance, selectedInstanceId, selectedModelForPicker, selectedProvider]);
+  const threads = useStore(useShallow(selectThreadsAcrossEnvironments));
+  const selectedCodexUsageLimits = useMemo(
+    () =>
+      selectedProviderEntry?.driverKind === ProviderDriverKind.make("codex")
+        ? resolveLatestCodexUsageLimitsView({
+            threads,
+            instanceId: selectedInstanceId,
+          })
+        : null,
+    [selectedInstanceId, selectedProviderEntry?.driverKind, threads],
+  );
+  const [isRefreshingCodexUsage, setIsRefreshingCodexUsage] = useState(false);
+  const [codexUsageRefreshError, setCodexUsageRefreshError] = useState<string | null>(null);
+  const codexUsageRefreshInFlightRef = useRef(false);
+  const refreshCodexUsage = useCallback(
+    async (instanceId = selectedInstanceId) => {
+      const entry = providerInstanceEntries.find(
+        (providerEntry) => providerEntry.instanceId === instanceId,
+      );
+      if (entry?.driverKind !== ProviderDriverKind.make("codex")) {
+        return;
+      }
+      if (codexUsageRefreshInFlightRef.current) {
+        return;
+      }
+      const connection = readEnvironmentConnection(environmentId);
+      if (!connection) {
+        setCodexUsageRefreshError("Backend is not connected.");
+        return;
+      }
+      codexUsageRefreshInFlightRef.current = true;
+      setIsRefreshingCodexUsage(true);
+      setCodexUsageRefreshError(null);
+      try {
+        await connection.client.server.refreshCodexUsage({ instanceId });
+      } catch (error) {
+        setCodexUsageRefreshError(error instanceof Error ? error.message : "Refresh failed.");
+      } finally {
+        codexUsageRefreshInFlightRef.current = false;
+        setIsRefreshingCodexUsage(false);
+      }
+    },
+    [environmentId, providerInstanceEntries, selectedInstanceId],
+  );
+  useEffect(() => {
+    if (selectedProviderEntry?.driverKind !== ProviderDriverKind.make("codex")) {
+      return;
+    }
+    const updatedAt = selectedCodexUsageLimits?.updatedAt
+      ? Date.parse(selectedCodexUsageLimits.updatedAt)
+      : 0;
+    const isStale = !updatedAt || Date.now() - updatedAt > CODEX_USAGE_REFRESH_STALE_MS;
+    if (isStale) {
+      void refreshCodexUsage();
+    }
+  }, [refreshCodexUsage, selectedCodexUsageLimits?.updatedAt, selectedProviderEntry?.driverKind]);
+  const handleProviderModelSelect = useCallback(
+    (instanceId: ProviderInstanceId, model: string) => {
+      onProviderModelSelect(instanceId, model);
+      void refreshCodexUsage(instanceId);
+    },
+    [onProviderModelSelect, refreshCodexUsage],
+  );
 
   // ------------------------------------------------------------------
   // Context window
@@ -2334,7 +2402,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   onOpenChange={(open) => {
                     setIsComposerModelPickerOpen(open);
                   }}
-                  onInstanceModelChange={onProviderModelSelect}
+                  onInstanceModelChange={handleProviderModelSelect}
                 />
 
                 {isComposerFooterCompact ? (
