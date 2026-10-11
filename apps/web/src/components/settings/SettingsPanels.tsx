@@ -655,6 +655,9 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Delete confirmation"]
         : []),
       ...(settings.confirmQuit !== DEFAULT_UNIFIED_SETTINGS.confirmQuit ? ["Quit shortcut"] : []),
+      ...(settings.keepRunningWhenClosed !== DEFAULT_UNIFIED_SETTINGS.keepRunningWhenClosed
+        ? ["Keep running when closed"]
+        : []),
       ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
       ...getChangedBrowserSettingLabels(settings),
       ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
@@ -677,6 +680,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.chatWidth,
       settings.enableAgentBrowserAccess,
       settings.confirmQuit,
+      settings.keepRunningWhenClosed,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.confirmThreadUnpin,
@@ -832,6 +836,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       confirmThreadUnpin: DEFAULT_UNIFIED_SETTINGS.confirmThreadUnpin,
       confirmQuit: DEFAULT_UNIFIED_SETTINGS.confirmQuit,
+      keepRunningWhenClosed: DEFAULT_UNIFIED_SETTINGS.keepRunningWhenClosed,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
       fontFamilySans: DEFAULT_UNIFIED_SETTINGS.fontFamilySans,
       fontFamilyComposer: DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer,
@@ -2499,6 +2504,19 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+        {isElectron && !isMacPlatform(navigator.platform) ? (
+          <SettingsRow
+            {...searchableSetting("keep-running-when-closed")}
+            description="Agents and remote connections keep working after you close the window. Reopen or quit T3 Code from the tray icon, or by launching it again."
+            control={
+              <Switch
+                checked={settings.keepRunningWhenClosed}
+                onCheckedChange={(checked) => updateSettings({ keepRunningWhenClosed: checked })}
+                aria-label="Keep running when the window is closed"
+              />
+            }
+          />
+        ) : null}
         <SettingsRow
           {...searchableSetting("time-format")}
           description="System default follows your browser or OS clock preference."

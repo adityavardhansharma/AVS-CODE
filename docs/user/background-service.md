@@ -40,6 +40,22 @@ downloaded versions after showing you the list and asking once. Your projects,
 threads, and settings under `~/.t3/userdata` are kept. Pass `--yes` from a
 script.
 
+## Keep the desktop app running after closing its window
+
+On Windows and Linux, closing the T3 Code desktop window normally quits the
+app and stops running agents. To keep it running instead, turn on
+**Settings → General → Keep running when closed**. Agents, scheduled tasks,
+and remote connections then keep working after you close the window.
+
+While it is on, a T3 Code icon sits in the system tray. Click it, or choose
+**Open T3 Code** from its menu, to bring the window back, and choose **Quit**
+to stop the app. Launching T3 Code again also reopens the window, which is the
+way back on desktops that hide tray icons, such as GNOME without a tray
+extension. The app menu's Quit still quits as before.
+
+On macOS, closing the window already leaves T3 Code running in the Dock, so
+the setting is not shown there.
+
 ## Platform support
 
 Linux needs systemd user services. Setup enables lingering so T3 Code starts at

@@ -162,6 +162,25 @@ describe("searchSettings", () => {
     }
   });
 
+  it.each([
+    { platform: "MacIntel", found: false },
+    { platform: "Win32", found: true },
+    { platform: "Linux x86_64", found: true },
+  ])("shows non-macOS settings on $platform: $found", ({ platform, found }) => {
+    const item: SettingsSearchItem = {
+      id: "keep-running-when-closed",
+      title: "Keep running when closed",
+      to: "/settings/general",
+      nonMacOnly: true,
+    };
+    vi.stubGlobal("navigator", { platform });
+    try {
+      expect(searchSettings("keep running", [item])).toEqual(found ? [item] : []);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("registers the WSL backend as a desktop-only setting", () => {
     expect(SETTINGS_SEARCH_ITEMS.find((item) => item.id === "wsl-backend")).toMatchObject({
       id: "wsl-backend",

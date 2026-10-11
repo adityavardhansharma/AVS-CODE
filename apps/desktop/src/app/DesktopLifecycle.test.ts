@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 
 import type * as Electron from "electron";
@@ -60,11 +61,16 @@ const layerElectronTheme = Layer.succeed(ElectronTheme.ElectronTheme, {
   onUpdated: () => Effect.void,
 });
 
-function layerElectronWindow(destroyAll: Effect.Effect<void> = Effect.void) {
+function layerElectronWindow(
+  destroyAll: Effect.Effect<void> = Effect.void,
+  currentMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>> = Effect.die(
+    "unexpected current window read",
+  ),
+) {
   return Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected window creation"),
     main: Effect.die("unexpected main window read"),
-    currentMainOrFirst: Effect.die("unexpected current window read"),
+    currentMainOrFirst,
     focusedMainOrFirst: Effect.die("unexpected focused window read"),
     setMain: () => Effect.void,
     clearMain: () => Effect.void,
@@ -254,5 +260,103 @@ describe("DesktopLifecycle", () => {
         }),
       ).pipe(Effect.provide(layer));
     }),
+  );
+
+  it.effect.each([
+    { platform: "darwin", keepRunning: false, quits: false },
+    { platform: "darwin", keepRunning: true, quits: false },
+    { platform: "win32", keepRunning: false, quits: true },
+    { platform: "win32", keepRunning: true, quits: false },
+    { platform: "linux", keepRunning: false, quits: true },
+    { platform: "linux", keepRunning: true, quits: false },
+  ] satisfies ReadonlyArray<{
+    platform: NodeJS.Platform;
+    keepRunning: boolean;
+    quits: boolean;
+  }>)(
+    "closing the last window on $platform with keep running $keepRunning quits: $quits",
+    ({ platform, keepRunning, quits }) =>
+      Effect.gen(function* () {
+        const appListeners = new Map<string, (...args: readonly unknown[]) => void>();
+        const quitRequested = yield* Deferred.make<void>();
+        const layerEnvironment = Layer.succeed(DesktopEnvironment.DesktopEnvironment, {
+          platform,
+          isDevelopment: false,
+        } as DesktopEnvironment.DesktopEnvironment["Service"]);
+        const layer = DesktopLifecycle.layer.pipe(
+          Layer.provideMerge(
+            layerElectronApp(
+              appListeners,
+              Deferred.succeed(quitRequested, undefined).pipe(Effect.asVoid),
+            ),
+          ),
+          Layer.provideMerge(layerElectronTheme),
+          Layer.provideMerge(layerElectronWindow()),
+          Layer.provideMerge(layerDesktopWindow()),
+          Layer.provideMerge(layerEnvironment),
+          Layer.provideMerge(DesktopShutdown.layer),
+          Layer.provideMerge(DesktopState.layer),
+        );
+
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const lifecycle = yield* DesktopLifecycle.DesktopLifecycle;
+            const state = yield* DesktopState.DesktopState;
+            yield* lifecycle.register;
+            yield* Ref.set(state.keepRunningWhenClosed, keepRunning);
+
+            appListeners.get("window-all-closed")?.();
+            yield* Effect.yieldNow;
+
+            assert.equal(yield* Deferred.isDone(quitRequested), quits);
+          }),
+        ).pipe(Effect.provide(layer));
+      }),
+  );
+
+  it.effect.each([
+    { hasWindow: false, activates: true },
+    { hasWindow: true, activates: false },
+  ])(
+    "launching again with a window open $hasWindow activates: $activates",
+    ({ hasWindow, activates }) =>
+      Effect.gen(function* () {
+        const appListeners = new Map<string, (...args: readonly unknown[]) => void>();
+        const activated = yield* Deferred.make<void>();
+        const layerEnvironment = Layer.succeed(DesktopEnvironment.DesktopEnvironment, {
+          platform: "linux",
+          isDevelopment: false,
+        } as DesktopEnvironment.DesktopEnvironment["Service"]);
+        const layer = DesktopLifecycle.layer.pipe(
+          Layer.provideMerge(layerElectronApp(appListeners)),
+          Layer.provideMerge(layerElectronTheme),
+          Layer.provideMerge(
+            layerElectronWindow(
+              Effect.void,
+              Effect.succeed(hasWindow ? Option.some({} as Electron.BrowserWindow) : Option.none()),
+            ),
+          ),
+          Layer.provideMerge(
+            layerDesktopWindow({
+              activate: Deferred.succeed(activated, undefined).pipe(Effect.asVoid),
+            }),
+          ),
+          Layer.provideMerge(layerEnvironment),
+          Layer.provideMerge(DesktopShutdown.layer),
+          Layer.provideMerge(DesktopState.layer),
+        );
+
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const lifecycle = yield* DesktopLifecycle.DesktopLifecycle;
+            yield* lifecycle.register;
+
+            appListeners.get("second-instance")?.();
+            yield* Effect.yieldNow;
+
+            assert.equal(yield* Deferred.isDone(activated), activates);
+          }),
+        ).pipe(Effect.provide(layer));
+      }),
   );
 });

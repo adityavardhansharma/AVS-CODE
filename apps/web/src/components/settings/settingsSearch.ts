@@ -56,6 +56,9 @@ export interface SettingsSearchItem {
   // Its row only renders on Windows desktop, so other desktop platforms must
   // not expose a result that points to a missing anchor.
   readonly windowsOnly?: boolean;
+  // Its row renders on desktop everywhere except macOS, which already keeps
+  // running from the Dock after its last window closes.
+  readonly nonMacOnly?: boolean;
   // Its row renders only where the release channel can change: the desktop
   // app, or a hosted web build deployed with a channel.
   readonly releaseChannelOnly?: boolean;
@@ -397,6 +400,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "In-app notifications",
     to: "/settings/general",
     searchTerms: ["notification toast popup completion input approval failure"],
+  },
+  {
+    id: "keep-running-when-closed",
+    title: "Keep running when closed",
+    to: "/settings/general",
+    searchTerms: ["background tray system tray minimize close window quit exit stay open"],
+    desktopOnly: true,
+    nonMacOnly: true,
   },
   {
     id: "time-format",
@@ -1168,6 +1179,7 @@ export function searchSettings(
       if (item.releaseChannelOnly && !isElectron && HOSTED_APP_CHANNEL === null) return [];
       if (item.macOnly && !isMacPlatform(platform)) return [];
       if (item.windowsOnly && !isWindowsPlatform(platform)) return [];
+      if (item.nonMacOnly && isMacPlatform(platform)) return [];
 
       const title = normalizeSearchText(item.title);
       const fields = [

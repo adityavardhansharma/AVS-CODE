@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -246,10 +247,26 @@ export const make = DesktopLifecycle.of({
         Effect.gen(function* () {
           const app = yield* ElectronApp.ElectronApp;
           const state = yield* DesktopState.DesktopState;
-          if (environment.platform !== "darwin" && !(yield* Ref.get(state.quitting))) {
+          if (
+            environment.platform !== "darwin" &&
+            !(yield* Ref.get(state.quitting)) &&
+            !(yield* Ref.get(state.keepRunningWhenClosed))
+          ) {
             yield* app.quit;
           }
         }).pipe(Effect.withSpan("desktop.lifecycle.windowAllClosed")),
+      );
+    });
+    // Launching T3 Code again while it runs with every window closed brings a
+    // window back. With a window open, DesktopClerk already reveals it.
+    yield* electronApp.on("second-instance", () => {
+      void runEffect(
+        Effect.gen(function* () {
+          const state = yield* DesktopState.DesktopState;
+          if (yield* Ref.get(state.quitting)) return;
+          if (Option.isSome(yield* electronWindow.currentMainOrFirst)) return;
+          yield* desktopWindow.activate;
+        }).pipe(Effect.withSpan("desktop.lifecycle.secondInstance")),
       );
     });
 
